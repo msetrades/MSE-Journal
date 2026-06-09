@@ -20,6 +20,7 @@ export const tradesTable = pgTable("trades", {
   rr: decimal("rr", { precision: 10, scale: 2 }).notNull(),
   outcome: text("outcome").notNull(),
   notes: text("notes").default(""),
+  screenshot: text("screenshot").default(null),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

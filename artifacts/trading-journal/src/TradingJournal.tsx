@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import html2canvas from "html2canvas";
 
 const API_BASE = (import.meta as any).env?.VITE_API_URL ?? "";
 
@@ -80,6 +81,42 @@ function getWeekBuckets(y: number, m: number, trades: any[]) {
     return{wk,r:wt.reduce((s,t)=>s+tradeR(t),0),trades:wt.length};
   });
 }
+function compressImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 1200;
+        let w = img.width, h = img.height;
+        if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+        if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; }
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.75));
+      };
+      img.onerror = reject;
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function downloadCardAsImage(el: HTMLElement, filename: string) {
+  const canvas = await html2canvas(el, {
+    backgroundColor: "#111120",
+    scale: 2,
+    useCORS: true,
+    logging: false,
+  });
+  const link = document.createElement("a");
+  link.download = filename;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+
 function exportCSV(trades: any[]) {
   const h=["Date","Pair","Direction","Session","Setup","RR","Outcome","Net R","Notes"];
   const rows=[...trades].reverse().map(t=>[t.date,t.pair,t.direction,t.session,t.setup,t.rr,t.outcome,tradeR(t).toFixed(2),`"${(t.notes||"").replace(/"/g,'""')}"`]);
@@ -236,16 +273,27 @@ function ReportCard({period,trades,journals,noTrades}: {period:any,trades:any[],
   const j=journals[0]||null;
   const noTradeCount=noTrades.length;
   const accentR=s&&s.totalRR>=0?"var(--green)":"var(--red)";
+  const cardRef=useRef<HTMLDivElement>(null);
+  const [saving,setSaving]=useState(false);
+  async function handleSave(){
+    if(!cardRef.current)return;
+    setSaving(true);
+    try{await downloadCardAsImage(cardRef.current,`rr-journal-${period.type}-${period.label.replace(/[^a-z0-9]/gi,"-").toLowerCase()}.png`);}
+    finally{setSaving(false);}
+  }
   return(
-    <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:"14px",overflow:"hidden",marginBottom:"10px"}}>
+    <div ref={cardRef} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:"14px",overflow:"hidden",marginBottom:"10px"}}>
       <div style={{padding:"14px 16px",background:"var(--card2)",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div>
           <div style={{fontFamily:"'Space Mono',monospace",fontSize:"9px",color:"var(--muted)",letterSpacing:"2px",marginBottom:"2px"}}>{period.type.toUpperCase()} REPORT</div>
           <div style={{fontWeight:800,fontSize:"14px"}}>{period.label}</div>
         </div>
-        <div style={{textAlign:"right"}}>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:"6px"}}>
           <div style={{fontFamily:"'Space Mono',monospace",fontSize:"22px",fontWeight:700,color:accentR,lineHeight:1}}>{s?fmtR(s.totalRR):"—"}</div>
           <div style={{fontFamily:"'Space Mono',monospace",fontSize:"9px",color:"var(--muted)"}}>NET R</div>
+          <button onClick={handleSave} disabled={saving} style={{padding:"4px 10px",fontSize:"9px",fontWeight:700,letterSpacing:"1px",background:"var(--card)",border:"1px solid var(--border)",color:saving?"var(--muted)":"var(--text2)",borderRadius:"5px",cursor:saving?"wait":"pointer"}}>
+            {saving?"SAVING…":"⬇ SAVE"}
+          </button>
         </div>
       </div>
       {s?(
@@ -320,7 +368,7 @@ export default function TradingJournal() {
 
   const [view,setView]=useState("home");
   const [modal,setModal]=useState<string|null>(null);
-  const [tradeForm,setTF]=useState({date:todayStr(),pair:"EUR/USD",direction:"Long",session:"London",setup:"Trend Continuation",rr:"",outcome:"Win",notes:""});
+  const [tradeForm,setTF]=useState({date:todayStr(),pair:"EUR/USD",direction:"Long",session:"London",setup:"Trend Continuation",rr:"",outcome:"Win",notes:"",screenshot:""});
   const [jForm,setJF]=useState({date:todayStr(),type:"daily",mood:"😌 Calm",followed_plan:true,best_trade:"",mistakes:"",lessons:"",mental_score:7,discipline_score:7});
   const [editTradeId,setETI]=useState<number|null>(null);
   const [editJId,setEJI]=useState<number|null>(null);
@@ -370,7 +418,7 @@ export default function TradingJournal() {
         toast_("Trade logged ✓");
       }
     }catch(e:any){toast_(e.message||"Failed to save trade","error");return;}
-    setTF({date:todayStr(),pair:"EUR/USD",direction:"Long",session:"London",setup:"Trend Continuation",rr:"",outcome:"Win",notes:""});
+    setTF({date:todayStr(),pair:"EUR/USD",direction:"Long",session:"London",setup:"Trend Continuation",rr:"",outcome:"Win",notes:"",screenshot:""});
     setModal(null);
   }
   async function submitJournal(){
@@ -588,7 +636,7 @@ export default function TradingJournal() {
     <><style>{CSS}</style>
     <div style={{maxWidth:600,margin:"0 auto",padding:"24px 18px 100px",minHeight:"100vh"}}>
       <div style={{display:"flex",alignItems:"center",gap:"12px",marginBottom:"24px"}}>
-        <button onClick={()=>{setModal(null);setETI(null);setTF({date:todayStr(),pair:"EUR/USD",direction:"Long",session:"London",setup:"Trend Continuation",rr:"",outcome:"Win",notes:""});}}
+        <button onClick={()=>{setModal(null);setETI(null);setTF({date:todayStr(),pair:"EUR/USD",direction:"Long",session:"London",setup:"Trend Continuation",rr:"",outcome:"Win",notes:"",screenshot:""});}}
           style={{padding:"8px 14px",background:"var(--card2)",color:"var(--muted)",border:"1px solid var(--border)",fontSize:"11px"}}>← BACK</button>
         <span style={{fontFamily:"'Space Mono',monospace",fontSize:"10px",color:"var(--muted)",letterSpacing:"3px"}}>{editTradeId?"EDIT TRADE":"LOG TRADE"}</span>
       </div>
@@ -619,9 +667,28 @@ export default function TradingJournal() {
           </div>
         </div>
         <div><Lbl>NOTES</Lbl><textarea rows={3} placeholder="Rationale, observations..." value={tradeForm.notes} onChange={e=>setTF(f=>({...f,notes:e.target.value}))} style={{resize:"vertical",lineHeight:1.6}}/></div>
+        <div>
+          <Lbl>CHART SCREENSHOT (optional)</Lbl>
+          {tradeForm.screenshot?(
+            <div style={{position:"relative"}}>
+              <img src={tradeForm.screenshot} alt="chart" style={{width:"100%",maxHeight:"180px",objectFit:"cover",borderRadius:"8px",border:"1px solid var(--border)"}}/>
+              <button onClick={()=>setTF(f=>({...f,screenshot:""}))} style={{position:"absolute",top:"6px",right:"6px",width:"22px",height:"22px",borderRadius:"50%",background:"rgba(255,63,94,0.85)",color:"#fff",fontSize:"12px",border:"none",lineHeight:1,padding:0}}>✕</button>
+            </div>
+          ):(
+            <label style={{display:"flex",alignItems:"center",gap:"10px",padding:"10px 14px",background:"var(--card2)",border:"1px solid var(--border)",borderRadius:"8px",cursor:"pointer"}}>
+              <span style={{fontSize:"18px"}}>📎</span>
+              <span style={{fontFamily:"'Space Mono',monospace",fontSize:"10px",color:"var(--muted)"}}>Attach chart image…</span>
+              <input type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{
+                const f=e.target.files?.[0];
+                if(f){try{const b64=await compressImage(f);setTF(p=>({...p,screenshot:b64}));}catch{}}
+                e.target.value="";
+              }}/>
+            </label>
+          )}
+        </div>
         <div style={{display:"flex",gap:"10px"}}>
           <button onClick={()=>{setModal(null);setETI(null);}} style={{flex:1,padding:"14px",background:"var(--card2)",color:"var(--muted)",border:"1px solid var(--border)",fontSize:"11px"}}>CANCEL</button>
-          <button onClick={submitTrade} style={{flex:2,padding:"14px",background:"var(--green)",color:"#0a0a14",fontSize:"13px",letterSpacing:"2px",fontWeight:800}}>{editTradeId?"UPDATE":"LOG TRADE"}</button>
+          <button onClick={submitTrade} style={{flex:2,padding:"14px",background:"var(--green)",color:"#0a0a14",fontSize:"13px",letterSpacing:"2px",fontWeight:800,borderRadius:"8px"}}>{editTradeId?"UPDATE":"LOG TRADE"}</button>
         </div>
       </div>
     </div>
@@ -709,14 +776,15 @@ export default function TradingJournal() {
                 <div style={{fontFamily:"'Space Mono',monospace",fontSize:"20px",fontWeight:700,color:a}}>{trade.outcome==="Win"?"+":trade.outcome==="BE"?"±":"-"}{trade.rr}R</div>
               </div>
               {trade.notes&&<div style={{fontFamily:"'Space Mono',monospace",fontSize:"10px",color:"var(--text2)",lineHeight:1.6,background:"var(--card2)",borderRadius:"4px",padding:"7px 10px"}}>{trade.notes}</div>}
+              {trade.screenshot&&<img src={trade.screenshot} alt="chart" style={{width:"100%",maxHeight:"160px",objectFit:"cover",borderRadius:"6px",marginTop:"8px",border:"1px solid var(--border)"}}/>}
               <div style={{display:"flex",gap:"6px",marginTop:"9px"}}>
-                <button onClick={()=>{setTF({...trade});setETI(trade.id);setModal("trade");}} style={{padding:"5px 12px",fontSize:"10px",background:"var(--card2)",color:"var(--text2)",border:"1px solid var(--border)"}}>EDIT</button>
+                <button onClick={()=>{setTF({...trade,screenshot:trade.screenshot||""});setETI(trade.id);setModal("trade");}} style={{padding:"5px 12px",fontSize:"10px",background:"var(--card2)",color:"var(--text2)",border:"1px solid var(--border)"}}>EDIT</button>
                 <button onClick={()=>setDelC(trade.id)} style={{padding:"5px 10px",fontSize:"10px",background:"transparent",color:"var(--muted)",border:"1px solid var(--border)"}}>✕</button>
               </div>
             </div>
           );
         })}
-        <button onClick={()=>{setTF({date:todayStr(),pair:"EUR/USD",direction:"Long",session:"London",setup:"Trend Continuation",rr:"",outcome:"Win",notes:"",date:dateStr} as any);setModal("trade");}} style={{width:"100%",marginTop:"8px",padding:"12px",background:"var(--green)",color:"#0a0a14",fontSize:"12px",letterSpacing:"2px",fontWeight:800}}>+ LOG TRADE FOR THIS DAY</button>
+        <button onClick={()=>{setTF({date:dateStr,pair:"EUR/USD",direction:"Long",session:"London",setup:"Trend Continuation",rr:"",outcome:"Win",notes:"",screenshot:""});setModal("trade");}} style={{width:"100%",marginTop:"8px",padding:"12px",background:"var(--green)",color:"#0a0a14",fontSize:"12px",letterSpacing:"2px",fontWeight:800}}>+ LOG TRADE FOR THIS DAY</button>
       </div>
       {delC&&<DelModal onCancel={()=>setDelC(null)} onConfirm={()=>handleDeleteTrade(delC)}/>}
       {toast&&<Toast {...toast}/>}</>
@@ -837,7 +905,7 @@ export default function TradingJournal() {
                   return(
                     <div key={i} onClick={()=>{setSelDay(day);setModal("day-detail");}} style={{aspectRatio:"1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",borderRadius:"6px",background:bg,border:`1px solid ${isToday?"var(--blue)":border}`,cursor:"pointer",position:"relative"}}>
                       <span style={{fontFamily:"'Space Mono',monospace",fontSize:"10px",color:isToday?"var(--blue)":"var(--text2)",fontWeight:isToday?700:400}}>{day}</span>
-                      {hasT&&<span style={{fontFamily:"'Space Mono',monospace",fontSize:"7px",color:r>=0?"var(--green)":"var(--red)"}}>{r>=0?"+":""}{r.toFixed(1)}R</span>}
+                      {hasT&&<span style={{fontFamily:"'Space Mono',monospace",fontSize:"10px",fontWeight:700,color:r>=0?"var(--green)":"var(--red)",lineHeight:1.1}}>{r>=0?"+":""}{r.toFixed(1)}R</span>}
                       {nt&&!hasT&&<span style={{fontSize:"8px",color:"var(--yellow)"}}>⊘</span>}
                     </div>
                   );
@@ -894,8 +962,9 @@ export default function TradingJournal() {
                 </div>
                 <RRBar value={tradeR(trade)} max={maxR}/>
                 {trade.notes&&<div style={{fontFamily:"'Space Mono',monospace",fontSize:"10px",color:"var(--text2)",lineHeight:1.6,marginTop:"8px",background:"var(--card2)",borderRadius:"4px",padding:"6px 10px"}}>{trade.notes}</div>}
+                {trade.screenshot&&<img src={trade.screenshot} alt="chart" style={{width:"100%",maxHeight:"160px",objectFit:"cover",borderRadius:"6px",marginTop:"8px",border:"1px solid var(--border)"}}/>}
                 <div style={{display:"flex",gap:"6px",marginTop:"10px"}}>
-                  <button onClick={()=>{setTF({...trade});setETI(trade.id);setModal("trade");}} style={{padding:"5px 12px",fontSize:"10px",background:"var(--card2)",color:"var(--text2)",border:"1px solid var(--border)"}}>EDIT</button>
+                  <button onClick={()=>{setTF({...trade,screenshot:trade.screenshot||""});setETI(trade.id);setModal("trade");}} style={{padding:"5px 12px",fontSize:"10px",background:"var(--card2)",color:"var(--text2)",border:"1px solid var(--border)"}}>EDIT</button>
                   <button onClick={()=>setDelC(trade.id)} style={{padding:"5px 10px",fontSize:"10px",background:"transparent",color:"var(--muted)",border:"1px solid var(--border)"}}>✕</button>
                 </div>
               </div>
@@ -1061,7 +1130,7 @@ export default function TradingJournal() {
           ))}
         </nav>
         <div style={{padding:"0 16px",marginTop:"auto"}}>
-          <button onClick={()=>{setTF({date:todayStr(),pair:"EUR/USD",direction:"Long",session:"London",setup:"Trend Continuation",rr:"",outcome:"Win",notes:""});setModal("trade");}} style={{width:"100%",padding:"11px",background:"var(--green)",color:"#0a0a14",fontSize:"12px",letterSpacing:"1px",fontWeight:800,marginBottom:"8px"}}>+ LOG TRADE</button>
+          <button onClick={()=>{setTF({date:todayStr(),pair:"EUR/USD",direction:"Long",session:"London",setup:"Trend Continuation",rr:"",outcome:"Win",notes:"",screenshot:""});setModal("trade");}} style={{width:"100%",padding:"11px",background:"var(--green)",color:"#0a0a14",fontSize:"12px",letterSpacing:"1px",fontWeight:800,marginBottom:"8px"}}>+ LOG TRADE</button>
           <button onClick={()=>{setJF({date:todayStr(),type:"daily",mood:"😌 Calm",followed_plan:true,best_trade:"",mistakes:"",lessons:"",mental_score:7,discipline_score:7});setModal("journal");}} style={{width:"100%",padding:"11px",background:"var(--blue)22",color:"var(--blue)",border:"1px solid var(--blue)44",fontSize:"12px",letterSpacing:"1px",fontWeight:800,marginBottom:"12px"}}>+ JOURNAL</button>
           <div style={{borderTop:"1px solid var(--border)",paddingTop:"12px"}}>
             <div style={{fontFamily:"'Space Mono',monospace",fontSize:"9px",color:"var(--muted)",marginBottom:"6px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>@{user?.username}</div>
@@ -1082,7 +1151,7 @@ export default function TradingJournal() {
         ))}
       </div>
 
-      <button className="mobile-only" onClick={()=>{if(view==="review"){setJF({date:todayStr(),type:"daily",mood:"😌 Calm",followed_plan:true,best_trade:"",mistakes:"",lessons:"",mental_score:7,discipline_score:7});setModal("journal");}else{setTF({date:todayStr(),pair:"EUR/USD",direction:"Long",session:"London",setup:"Trend Continuation",rr:"",outcome:"Win",notes:""});setModal("trade");}}}
+      <button className="mobile-only" onClick={()=>{if(view==="review"){setJF({date:todayStr(),type:"daily",mood:"😌 Calm",followed_plan:true,best_trade:"",mistakes:"",lessons:"",mental_score:7,discipline_score:7});setModal("journal");}else{setTF({date:todayStr(),pair:"EUR/USD",direction:"Long",session:"London",setup:"Trend Continuation",rr:"",outcome:"Win",notes:"",screenshot:""});setModal("trade");}}}
         style={{position:"fixed",bottom:"84px",right:"20px",width:"52px",height:"52px",borderRadius:"50%",background:view==="review"?"var(--blue)":"var(--green)",color:"#0a0a14",fontSize:"22px",fontWeight:700,zIndex:100,boxShadow:`0 8px 24px ${view==="review"?"rgba(77,158,255,0.3)":"rgba(0,232,122,0.25)"}`}}>+</button>
     </div>
 
