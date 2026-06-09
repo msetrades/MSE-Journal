@@ -1,36 +1,49 @@
-# [Project name]
+# R:R Journal
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A dark-themed trading journal for forex/futures traders to log trades, write reflections, and track performance metrics like win rate, expectancy, and equity curve.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-server run dev` — run the API server (port 8080)
+- `pnpm --filter @workspace/trading-journal run dev` — run the frontend (port varies)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
+- Required env: `SESSION_SECRET` — secret for express-session cookie signing
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
+- API: Express 5 + express-session + connect-pg-simple + bcryptjs
 - DB: PostgreSQL + Drizzle ORM
+- Frontend: React + Vite (single TradingJournal.tsx component)
 - Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
 - Build: esbuild (CJS bundle)
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/trading-journal/src/TradingJournal.tsx` — entire frontend UI (1100+ lines)
+- `artifacts/api-server/src/routes/` — auth, trades, journals, no-trade-days routes
+- `lib/db/src/schema/index.ts` — Drizzle schema (users, trades, journals, no_trade_days)
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- All UI lives in a single `TradingJournal.tsx` component — this was the design from the original file, preserved as-is
+- Session auth (not JWT) — sessions stored in `session` table via connect-pg-simple
+- Frontend uses raw `fetch` to `/api/...` — no codegen hooks, by design of the original component
+- All tables scoped by `user_id` — multi-user safe
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Traders register/login, then log trades with pair, direction, session, setup, R:R, and outcome
+- Dashboard shows equity curve, win rate, expectancy, profit factor, max drawdown
+- Calendar view shows daily/weekly P&L
+- Journal entries capture mood, mental/discipline scores, and lessons learned
+- Reports break down performance by daily/weekly/monthly period
+- No-trade days can be logged with a reason
+- CSV export of all trades
 
 ## User preferences
 
@@ -38,7 +51,9 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Always run `pnpm --filter @workspace/db run push` after schema changes before restarting the API server
+- SESSION_SECRET must be set — falls back to a dev placeholder but this is insecure in production
+- The trading journal frontend does NOT use React Query hooks — it uses raw fetch directly
 
 ## Pointers
 
