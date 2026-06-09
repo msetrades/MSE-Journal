@@ -44,14 +44,17 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use(
   session({
-    store: new PgStore({ pool, createTableIfMissing: true }),
+    store: new PgStore({ pool }),
     secret: process.env.SESSION_SECRET || "dev-secret-change-me",
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      // In Replit (dev or prod) the app is always served over HTTPS through the
+      // proxy and the preview pane is an iframe on a different origin (replit.com),
+      // so we need Secure + SameSite=None for cookies to be sent cross-site.
+      secure: !!(process.env.REPL_ID || process.env.NODE_ENV === "production"),
+      sameSite: (process.env.REPL_ID || process.env.NODE_ENV === "production") ? "none" : "lax",
       maxAge: 30 * 24 * 60 * 60 * 1000,
     },
   }),
